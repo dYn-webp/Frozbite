@@ -1,9 +1,8 @@
 "use client";
-import { useCart, Order } from "@/context/CartContext";
+import { useCart, Order as ContextOrder } from "@/context/CartContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowLeft, CheckCircle2, Truck, MessageCircle } from "lucide-react";
 import { useState, useEffect } from "react";
-// Import NextAuth
 import { useSession, signIn } from "next-auth/react";
 
 export default function CartDrawer() {
@@ -12,15 +11,10 @@ export default function CartDrawer() {
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({ name: "", phone: "", address: "", method: "transfer" });
   
-  // Ambil data sesi Login
   const { data: session, status } = useSession();
 
-  // Auto-isi nama jika sudah login
   useEffect(() => {
-    // 1. Simpan ke variabel dulu agar TypeScript tidak error (Type Safe)
     const userName = session?.user?.name;
-    
-    // 2. Jika userName ada isinya, baru masukkan ke dalam Form
     if (userName) {
       setFormData(prev => ({ ...prev, name: userName }));
     }
@@ -28,7 +22,7 @@ export default function CartDrawer() {
 
   const formatRupiah = (price: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(price);
 
-  // FUNGSI 1: CHECKOUT VIA WHATSAPP (TANPA LOGIN)
+  // FUNGSI 1: TETAP VIA WA (KHUSUS YANG TIDAK LOGIN/TAMU)
   const handleWhatsAppCheckout = () => {
     let textWA = `*Halo FrozBite, saya mau pesan (Tanpa Login):*\n\n`;
     cartItems.forEach((item, i) => {
@@ -38,30 +32,54 @@ export default function CartDrawer() {
     window.open(`https://wa.me/6287824891003?text=${encodeURIComponent(textWA)}`, '_blank');
   };
 
-  // FUNGSI 2: CHECKOUT DI WEB (MEMBER)
-  const handleWebCheckout = (e: React.FormEvent) => {
+  // FUNGSI 2: CHECKOUT WEB (LANGSUNG KE DATABASE MONGODB!)
+  const handleWebCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    const newOrder: Order = {
-      id: `INV-${Date.now().toString().slice(-6)}`,
-      date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
-      items: [...cartItems],
+    const invoiceId = `INV-${Date.now().toString().slice(-6)}`;
+    
+    // Siapkan data untuk dikirim ke Database
+    const orderData = {
+      invoice: invoiceId,
+      userEmail: session?.user?.email || "guest",
+      items: cartItems,
       total: cartTotal,
       status: "Menunggu Konfirmasi",
       customer: formData
     };
 
-    setTimeout(() => {
-      addOrder(newOrder);
-      // Notifikasi ke Admin tetap jalan
-      let textWA = `*PESANAN MASUK DARI WEB (MEMBER)* 🚨\n\nNo. Pesanan: ${newOrder.id}\nNama: ${formData.name}\nNo HP: ${formData.phone}\nAlamat: ${formData.address}\nPembayaran: ${formData.method.toUpperCase()}\n\n*Total: ${formatRupiah(cartTotal)}*`;
-      window.open(`https://wa.me/6287824891003?text=${encodeURIComponent(textWA)}`, '_blank');
+    try {
+      // 1. Kirim diam-diam ke Database MongoDB
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderData),
+      });
 
+      if (res.ok) {
+        // 2. Simpan juga ke Riwayat Lokal HP (agar langsung muncul di menu riwayat)
+        const newOrderContext: ContextOrder = {
+          id: invoiceId,
+          date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          items: [...cartItems],
+          total: cartTotal,
+          status: "Menunggu Konfirmasi",
+          customer: formData
+        };
+        addOrder(newOrderContext);
+
+        // 3. Langsung Tampilkan Layar Sukses (TANPA BUKA WA)
+        clearCart(); 
+        setStep("success"); 
+      } else {
+        alert("Gagal memproses pesanan ke server.");
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+    } finally {
       setIsLoading(false);
-      clearCart(); 
-      setStep("success"); 
-    }, 1500);
+    }
   };
 
   const handleClose = () => {
@@ -135,14 +153,13 @@ export default function CartDrawer() {
               {step === "success" && (
                 <div className="flex flex-col items-center justify-center h-full p-6 text-center mt-10">
                   <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-24 h-24 bg-green-100 text-green-500 rounded-full flex items-center justify-center mb-6"><CheckCircle2 size={50} /></motion.div>
-                  <h3 className="text-2xl font-bold text-slate-800 mb-2">Yeay, Pesanan Diterima!</h3>
-                  <p className="text-slate-500 text-sm mb-8">Struk otomatis dikirimkan ke Admin. Cek status pesanan di menu Riwayat.</p>
+                  <h3 className="text-2xl font-bold text-slate-800 mb-2">Yeay, Pesanan Masuk!</h3>
+                  <p className="text-slate-500 text-sm mb-8">Pesanan Anda telah masuk ke sistem kami secara otomatis. Cek status pesanan di menu Riwayat.</p>
                   <button onClick={handleClose} className="px-8 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl">Kembali Belanja</button>
                 </div>
               )}
             </div>
 
-            {/* DUA TOMBOL PILIHAN DI BAWAH KERANJANG */}
             {step === "cart" && cartItems.length > 0 && (
               <div className="p-6 bg-white border-t border-slate-200 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)] flex flex-col gap-3">
                 <div className="flex justify-between items-center mb-2">
@@ -150,14 +167,11 @@ export default function CartDrawer() {
                   <span className="text-2xl font-bold text-slate-900">{formatRupiah(cartTotal)}</span>
                 </div>
                 
-                {/* LOGIKA LOGIN DISINI */}
                 <button 
                   onClick={() => {
                     if (status === "unauthenticated") {
-                      // Jika belum login, paksa ke halaman login
                       signIn(); 
                     } else {
-                      // Jika sudah login, lanjut ke form pembayaran
                       setStep("checkout");
                     }
                   }} 
