@@ -7,7 +7,7 @@ export interface IOrder extends Document {
     phone: string;
     address: string;
     method: string;
-    email: string; // INI KUNCI UTAMANYA: Tambahkan email di sini!
+    email?: string;
   };
   items: any[];
   total: number;
@@ -24,9 +24,21 @@ const OrderSchema = new Schema<IOrder>(
       phone: { type: String, required: true },
       address: { type: String, required: true },
       method: { type: String, required: true },
-      email: { type: String }, // WAJIB ADA AGAR DATA DARI SESSION BISA TERSIMPAN
+      email: { type: String }, 
     },
-    items: { type: [Schema.Types.Mixed], required: true },
+    // KUNCI PERBAIKAN: Gunakan Inline Object Array. 
+    // TypeScript sangat menyukai format seperti ini.
+    items: { 
+      type: [
+        {
+          name: { type: String, required: true },
+          price: { type: Number, required: true },
+          quantity: { type: Number, required: true }
+        }
+      ], 
+      required: true, 
+      default: [] 
+    },
     total: { type: Number, required: true },
     status: { 
       type: String, 
